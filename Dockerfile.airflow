@@ -1,1 +1,26 @@
-﻿
+﻿# FROM : "hangi hazır kutuyu temel alacağım" demek
+# apache/airflow:2.8.1 : Airflow'un resmi hazır Docker imajı
+# python3.11 : içinde Python 3.11 kurulu
+FROM apache/airflow:2.8.1-python3.11
+
+# USER root : sonraki komutları "yönetici" olarak çalıştır
+# Çünkü paket yüklemek için yetki gerekiyor
+USER root
+
+# RUN : Docker imajı oluşturulurken çalıştırılacak komut
+# apt-get update : Linux paket listesini güncelle
+# apt-get install gcc : C derleyicisi (bazı Python paketleri bunu ister)
+# rm -rf /var/lib/apt/lists/* : indirilen geçici dosyaları sil (imajı küçültür)
+RUN apt-get update && apt-get install -y gcc && rm -rf /var/lib/apt/lists/*
+
+# USER airflow : güvenlik için tekrar normal kullanıcıya dön
+USER airflow
+
+# COPY : bilgisayarındaki dosyayı container'ın içine kopyala
+# requirements.txt . -> mevcut klasördeki requirements.txt'i container'ın içine al
+COPY requirements.txt .
+
+# pip install : Python kütüphanelerini yükle
+# --no-cache-dir : önbellek kullanma, imajı küçük tut
+RUN pip install --no-cache-dir \
+    pandas scikit-learn xgboost mlflow psycopg2-binary
