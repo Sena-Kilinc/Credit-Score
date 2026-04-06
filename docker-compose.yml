@@ -1,1 +1,179 @@
-﻿
+﻿version: '3.8'
+
+# networks: Servisler birbirleriyle nasıl konuşacak?
+# mlops-net adında bir iç ağ kuruyoruz.
+# Tıpkı evdeki WiFi gibi — aynı ağdaki cihazlar birbirini bulabilir.
+networks:
+  mlops-net:
+
+# volumes: Veriler nerede saklanacak?
+# Container silinse bile veriler kaybolmasın diye
+# Docker'ın kendi disk alanında saklıyoruz.
+volumes:
+  postgres-data:      # Veritabanı dosyaları
+  mlflow-data:        # Eğitilmiş model dosyaları
+  airflow-logs:       # Airflow çalışma logları
+
+services:
+
+  # ════════════════════════════════════════
+  # SERVS 1: PostgreSQL (Veritabanı)
+  # ════════════════════════════════════════
+  postgres:
+    # image: Hazır Docker imajı kullan, kendimiz Dockerfile yazmayalım
+    image: postgres:15
+
+    # networks: Bu servis hangi ağda olsun?
+    networks: [mlops-net]
+
+    # environment: Container içindeki ortam değişkenleri
+    # Bunlar PostgreSQL'in ilk açılışta okuduğu ayarlar
+    environment:
+      POSTGRES_USER: mlops         # Veritabanı kullanıcı adı
+      POSTGRES_PASSWORD: mlops123  # Şifre (gerçek projede güçlü yap!)
+      POSTGRES_DB: creditdb        # Otomatik oluşturulacak veritabanı adı
+
+    # volumes: Container'ın içindeki klasörü dışarıya bağla
+    # postgres-data (Docker volume) -> /var/lib/postgresql/data (container içi)
+    # Yani veriler Docker'ın kendi alanında güvenle saklanır
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+    # ports: Dışarıdan erişim için port aç
+    # "5432:5432" -> bilgisayarının 5432 portu = container'ın 5432 portu
+    ports:
+      - "5432:5432"
+
+    # healthcheck: "Bu servis gerçekten hazır mı?" kontrolü
+    # Diğer servisler PostgreSQL'e bağlanmadan önce hazır olmasını bekler
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "mlops"]
+      interval: 5s    # Her 5 saniyede bir kontrol et
+      retries: 5      # 5 kez dene, hâlâ olmazsa hata ver
+
+  # ════════════════════════════════════════
+  # SERVS 2: MLflow (Deney Takip Sunucusu)
+  # ════════════════════════════════════════
+  mlflow:
+    image: python:3.11-slim   # Sade Python imajı
+
+    networks: [mlops-net]
+
+    # command: Container başladığında çalıştırılacak komut
+    # Önce mlflow'u yükle, sonra sunucuyu başlat
+    command: >
+      bash -c "pip install mlflow psycopg2-binary -q &&
+               mlflow server
+               --host 0.0.0.0
+               --port 5000
+               --backend-store-uri postgresql://mlops:mlops123@postgres/creditdb
+               --default-artifact-root /mlflow/artifacts"
+
+    # --host 0.0.0.0        : Dışarıdan erişime izin ver
+    # --backend-store-uri   : Deney sonuçlarını PostgreSQL'e kaydet
+    # --default-artifact-root: Model dosyalarını /mlflow/artifacts'a kaydet
+
+    volumes:
+      - mlflow-data:/mlflow/artifacts   # Model dosyaları burada saklanır
+
+    ports:
+      - "5000:5000"    # http://localhost:5000 -> MLflow arayüzü
+
+    # depends_on: "Bu servis başlamadan önce şu servis hazır olsun"
+    # postgres healthy (sağlıklı) olmadan MLflow başlamasın
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ════════════════════════════════════════
+  # SERVS 3: Airflow (ş Akışı Yöneticisi)
+  # ════════════════════════════════════════
+  airflow:
+    # image değil, build kullanıyoruz çünkü kendi Dockerfile'ımız var
+    build:
+      context: .                        # Dockerfile'ı bu klasörde ara
+      dockerfile: Dockerfile.airflow    # Bu isimde ara
+
+    networks: [mlops-net]
+
+    environment:
+      # LocalExecutor: Görevleri aynı makinede çalıştır (basit, öğrenmek için ideal)
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+
+      # Airflow kendi metadata'sını da PostgreSQL'de saklayacak
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://mlops:mlops123@postgres/creditdb
+
+      # Güvenlik için şifreleme anahtarı (bu değeri olduğu gibi bırak)
+      AIRFLOW__CORE__FERNET_KEY: 'ZmDfcTF7_60GrrY167zsiPd67pEvs0aGOv2oasOM1Pg='
+
+      AIRFLOW__WEBSERVER__SECRET_KEY: 'my_secret_key_123'
+
+      # MLflow'un nerede çalıştığını Airflow'a söylüyoruz
+      # "mlflow" yazmak yeterli çünkü aynı ağdalar (mlops-net)
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+
+      # Veritabanı bağlantısı (DAG'lardan kullanacağız)
+      DB_CONN: postgresql://mlops:mlops123@postgres/creditdb
+
+    volumes:
+      # ./dags -> /opt/airflow/dags
+      # Bilgisayarındaki dags klasörünü container içine bağla
+      # Dosyayı değiştirince Airflow otomatik görür, yeniden başlatmana gerek yok!
+      - ./dags:/opt/airflow/dags
+      - ./src:/opt/airflow/src
+      - airflow-logs:/opt/airflow/logs
+
+    ports:
+      - "8080:8080"    # http://localhost:8080 -> Airflow arayüzü
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    # Airflow başlarken yapılması gerekenler:
+    # 1. db migrate  : Veritabanı tablolarını oluştur
+    # 2. users create: Admin kullanıcısı oluştur (ilk seferinde)
+    # 3. webserver   : Web arayüzünü başlat (arka planda, & işareti ile)
+    # 4. scheduler   : Görev zamanlayıcıyı başlat (ön planda)
+    command: >
+      bash -c "
+        airflow db migrate &&
+        airflow users create
+          --username admin
+          --password admin
+          --firstname Ad
+          --lastname Soyad
+          --role Admin
+          --email admin@example.com || true &&
+        airflow webserver &
+        airflow scheduler
+      "
+
+  # ════════════════════════════════════════
+  # SERVS 4: FastAPI (Tahmin API'si)
+  # ════════════════════════════════════════
+  api:
+    image: python:3.11-slim
+
+    networks: [mlops-net]
+
+    command: >
+      bash -c "pip install fastapi uvicorn mlflow scikit-learn xgboost -q &&
+               uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload"
+
+    # --reload: Kod değişince API otomatik yeniden başlar (geliştirme için harika)
+
+    volumes:
+      - ./api:/app/api
+      - mlflow-data:/mlflow/artifacts
+
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+
+    ports:
+      - "8000:8000"    # http://localhost:8000/docs -> Swagger arayüzü
+
+    working_dir: /app   # Container içinde çalışma klasörü
+
+    depends_on:
+      - mlflow
