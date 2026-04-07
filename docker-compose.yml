@@ -115,6 +115,19 @@ services:
       # Veritabanı bağlantısı (DAG'lardan kullanacağız)
       DB_CONN: postgresql://mlops:mlops123@postgres/creditdb
 
+      # ── Otomatik Admin Kullanıcısı ──────────────────────────────────────
+      # Apache Airflow'un resmi imajı bu değişkenleri okur ve
+      # ilk başlatmada admin kullanıcısını otomatik oluşturur.
+      # Sayesinde "docker compose exec airflow airflow users create ..."
+      # komutunu elle çalıştırmana gerek kalmaz.
+      _AIRFLOW_WWW_USER_CREATE: 'true'       # 'true' yazınca otomatik oluşturma açılır
+      _AIRFLOW_WWW_USER_USERNAME: admin       # Giriş ekranındaki kullanıcı adı
+      _AIRFLOW_WWW_USER_PASSWORD: admin       # Şifre (gerçek projede güçlü yap!)
+      _AIRFLOW_WWW_USER_FIRSTNAME: Ad         # Sadece görüntü amaçlı
+      _AIRFLOW_WWW_USER_LASTNAME: Soyad       # Sadece görüntü amaçlı
+      _AIRFLOW_WWW_USER_ROLE: Admin           # Tüm yetkilere sahip rol
+      _AIRFLOW_WWW_USER_EMAIL: admin@example.com
+
     volumes:
       # ./dags -> /opt/airflow/dags
       # Bilgisayarındaki dags klasörünü container içine bağla
@@ -132,23 +145,16 @@ services:
 
     # Airflow başlarken yapılması gerekenler:
     # 1. db migrate  : Veritabanı tablolarını oluştur
-    # 2. users create: Admin kullanıcısı oluştur (ilk seferinde)
-    # 3. webserver   : Web arayüzünü başlat (arka planda, & işareti ile)
-    # 4. scheduler   : Görev zamanlayıcıyı başlat (ön planda)
+    # 2. webserver   : Web arayüzünü başlat (arka planda, & işareti ile)
+    # 3. scheduler   : Görev zamanlayıcıyı başlat (ön planda)
+    # NOT: Kullanıcı artık environment variable'lardan otomatik oluşuyor,
+    #      bu yüzden "airflow users create" komutuna gerek yok.
     command: >
       bash -c "
         airflow db migrate &&
-        airflow users create
-          --username admin
-          --password admin
-          --firstname Ad
-          --lastname Soyad
-          --role Admin
-          --email admin@example.com || true &&
         airflow webserver &
         airflow scheduler
       "
-
   # ════════════════════════════════════════
   # SERVS 4: FastAPI (Tahmin API'si)
   # ════════════════════════════════════════
