@@ -109,7 +109,7 @@ def save_to_postgres(df):
     engine = create_engine(db_url)
 
     # engine.connect() : gerçek bağlantıyı açar
-    with engine.connect() as conn:
+    with engine.begin() as conn:
 
         # Tablo yoksa oluştur
         # text() : ham SQL yazmanı sağlar
@@ -127,8 +127,6 @@ def save_to_postgres(df):
             )
         """))
 
-        # Değişiklikleri kaydet (SQL'de 'commit' denir)
-        conn.commit()
 
     # df.to_sql : DataFrame'i doğrudan tabloya yaz
     # if_exists='append' : tablo varsa üstüne ekle, silme
