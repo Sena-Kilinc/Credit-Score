@@ -3,7 +3,7 @@
 # DAG : iş akışını tanımlayan ana sınıf
 # datetime : DAG'ın başlangıç tarihini vermek için
 from airflow import DAG
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # PythonOperator : "bir Python fonksiyonu çalıştır" operatörü
 # Airflow'da farklı türde operatörler var:
@@ -47,9 +47,9 @@ def task_generate_and_save():
 # default_args : Tüm task'lara uygulanacak varsayılan ayarlar
 # Tek tek her task'a yazmak yerine bir kez burada tanımlıyorsun
 default_args = {
-    'owner': 'mlops',           # Bu DAG'ın sahibi kim? (Airflow UI'da görünür)
-    'retries': 1,               # Hata olursa kaç kez tekrar dene?
-    'retry_delay_seconds': 30,  # Tekrar denemeden önce kaç saniye bekle?
+    'owner': 'mlops',
+    'retries': 1,
+    'retry_delay': timedelta(seconds=30),  # ← retry_delay_seconds değil bu!
 }
 
 # with DAG(...) as dag :
