@@ -47,7 +47,7 @@ services:
     # healthcheck: "Bu servis gerçekten hazır mı?" kontrolü
     # Diğer servisler PostgreSQL'e bağlanmadan önce hazır olmasını bekler
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "mlops"]
+      test:  ["CMD-SHELL", "pg_isready -U mlops -d creditdb"]
       interval: 5s    # Her 5 saniyede bir kontrol et
       retries: 5      # 5 kez dene, hâlâ olmazsa hata ver
 
@@ -152,7 +152,10 @@ services:
     command: >
       bash -c "
         airflow db migrate &&
+        airflow connections create-default-connections &&
+        airflow users create --username admin --password admin --firstname Ad --lastname Soyad --role Admin --email admin@example.com &&
         airflow webserver &
+        sleep 10 &&
         airflow scheduler
       "
   # ════════════════════════════════════════
