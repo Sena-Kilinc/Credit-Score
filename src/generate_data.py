@@ -110,11 +110,15 @@ def save_to_postgres(df):
 
     # engine.connect() : gerçek bağlantıyı açar
     with engine.begin() as conn:
+        # 1. Sequence varsa oluşturmaz (safe)
+        conn.execute(text("""
+            DROP TABLE IF EXISTS credit_data CASCADE;
+        """))
 
         # Tablo yoksa oluştur
         # text() : ham SQL yazmanı sağlar
         conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS credit_data (
+            CREATE TABLE credit_data (
                 id                 SERIAL PRIMARY KEY,
                 age                INTEGER,
                 income             FLOAT,
